@@ -1,52 +1,22 @@
-# Low Latency Camera Streaming with UDP for ESP32-Camera
+# WiFi Teleoperated model car
 
-OV2640搭載 Unit Cam Wi-Fi Camera向けのUDPを使った低遅延ストリーミングソフトウェアです。カメラから取得したデータを逐次を送信するため、PSRAMを持たないESP32でも高解像度（SVGA/HD）の画像を高いフレームレート（30p/15p）で低遅延でストリーミング可能です。受信側はPython+OpenCVで書いてます。
+With this repo you can control a model car using an [ESP32 microcontroller](https://amzn.eu/d/duSHIUO) and a PS Joystick (or any other pygame compatibile controller) through your home WiFi and PC.
 
-**CIF 60p**
+**This project is based on [_@arms22_ streaming software](https://github.com/arms22/esp32_camera_udp_streaming)**.
 
-[![](https://img.youtube.com/vi/SjpbKLbRCOo/0.jpg)](https://www.youtube.com/watch?v=SjpbKLbRCOo)
+## Setup
 
-**SVGA 30p**
+- Set your WiFi SSID and password in the config file `sdkconfig` and upload the code on the ESP32 using ESP-IDF.
+- Connect the PWM cables of the car motors for steering and throttle to the ESP32 PINS 32 and 33.
+- Connect your joystick to your PC so to be detected by pygame library. Use a gaming steering wheel for the best experience.
+- Identify your ESP32 IP (it should be 192.168.1.152 as specified in the IDF default config) and your PC IP on your LAN.
 
-[![](https://img.youtube.com/vi/bDFTgpb2yXw/0.jpg)](https://www.youtube.com/watch?v=bDFTgpb2yXw)
+### Usage
 
-**HD 15p**
-
-[![](https://img.youtube.com/vi/p_f2DVExQYw/0.jpg)](https://www.youtube.com/watch?v=p_f2DVExQYw)
-
-## 使い方（送信：esp32_sender）
-
-ビルドにはESP-IDF 4.2が必要です。
-
-### WiFi設定
-
-`Example Configuration`でSSIDとパスワードを設定してください。
+On your PC run
 
 ```
-cd esp32_sender
-idf.py menuconfig
+python3 python_receiver\receiver.py <localpc_ip> <esp32_ip>
 ```
 
-### ビルドとフラッシュ
-
-ビルドしてフラッシュしてシリアル出力を確認する。
-
-```
-cd esp32_sender
-idf.py -p PORT build flash monitor
-```
-
-## 使い方（受信：python_receiver）
-
-### OpenCVのインストール
-
-```
-pip3 install --upgrade pip
-pip3 install opencv-python
-```
-
-### 実行
-
-```
-python3.exe python_receiver\receiver.py <listen_ip> <esp32_ip>
-```
+While looking at the camera steaming on your PC, press R2 and L2 of your joystick to move forward and backwards, use the right joystick to steer. Have fun!

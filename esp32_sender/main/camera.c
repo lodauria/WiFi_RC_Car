@@ -1,6 +1,5 @@
 #include <esp_log.h>
 #include <esp_system.h>
-#include <esp_timer.h>
 #include <nvs_flash.h>
 #include <sys/param.h>
 #include <string.h>
@@ -12,6 +11,23 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "iot_servo.h"
+
+#define MOT_PIN 32
+#define SER_PIN 33
+
+#define MOTOR_PWM_CHANNEL_MOT LEDC_CHANNEL_0
+#define MOTOR_PWM_CHANNEL_SER LEDC_CHANNEL_1
+#define MOTOR_PWM_TIMER LEDC_TIMER_3
+#define MOTOR_SPEED_MODE LEDC_HIGH_SPEED_MODE
+
+// Calibrazione ruote sterzanti
+#define MAX_L 60  // Ruote tutte a sinistra
+#define MAX_R 120 // Ruote tutte a destra
+
+// Calibrazione motore (ESC)
+#define MAX_FOR 115 // Massima potenza avanti
+#define MAX_REV 65  // Massima potenza retro
 
 // support IDF 5.x
 #ifndef portTICK_RATE_MS
@@ -19,9 +35,31 @@
 #endif
 
 #include "esp_camera.h"
-#include "camera_pins.h"
+
+// EPS32 WROVER Camera
+#define PWDN_GPIO_NUM -1
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 21
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 19
+#define Y4_GPIO_NUM 18
+#define Y3_GPIO_NUM 5
+#define Y2_GPIO_NUM 4
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
 
 static const char *TAG = "camera";
+
+float map(long x, long in_min, long in_max, long out_min, long out_max)
+{
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
 
 esp_err_t init_camera(void)
 {
@@ -40,21 +78,17 @@ esp_err_t init_camera(void)
     config.pin_pclk = PCLK_GPIO_NUM;
     config.pin_vsync = VSYNC_GPIO_NUM;
     config.pin_href = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_sscb_sda = SIOD_GPIO_NUM;
+    config.pin_sscb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn = PWDN_GPIO_NUM;
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 24000000;
-    // config.xclk_freq_hz = 36000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    // config.frame_size = FRAMESIZE_QVGA; // 320 * 240 / 5 = 15,360 < 32,768
-    config.frame_size = FRAMESIZE_CIF; // 400 * 296 / 5 = 23,680 < 32,768
-    // config.frame_size = FRAMESIZE_HVGA; // 480 * 320 / 5 = 30,720 < 32,768
+    config.frame_size = FRAMESIZE_VGA;
     config.jpeg_quality = 10;
     config.fb_count = 2;
     config.fb_location = CAMERA_FB_IN_DRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-    // config.grab_mode = CAMERA_GRAB_LATEST;
     config.fragment_mode = true;
     config.zero_padding = false;
 
@@ -68,13 +102,7 @@ esp_err_t init_camera(void)
 
     sensor_t *s = esp_camera_sensor_get();
 
-    // drop down frame size for higher initial frame rate
-    s->set_framesize(s, FRAMESIZE_CIF);
-    // s->set_framesize(s, FRAMESIZE_QVGA);
-    // s->set_framesize(s, FRAMESIZE_VGA);
-    // s->set_framesize(s, FRAMESIZE_XGA);
-    // s->set_framesize(s, FRAMESIZE_HD);
-    // s->set_framesize(s, FRAMESIZE_SXGA);
+    s->set_framesize(s, FRAMESIZE_VGA);
 
     return ESP_OK;
 }
@@ -82,6 +110,7 @@ esp_err_t init_camera(void)
 #define USE_NETCONN 1
 #if USE_NETCONN
 struct netconn *camera_conn;
+struct netconn *command_conn;
 struct ip_addr peer_addr;
 #else
 static int camera_sock;
@@ -198,6 +227,98 @@ static void camera_tx(void *param)
     }
 }
 
+void do_actuation(char *cmd)
+{
+    int thr, brk, ang;
+    int n = sscanf(cmd, "[%d;%d;%d]|", &thr, &brk, &ang);
+
+    if (n != 3)
+        return;
+
+    ESP_LOGI(TAG, "thr: %d; brk: %d; ang: %d", thr, brk, ang);
+
+    iot_servo_write_angle(MOTOR_SPEED_MODE, 1, map(ang, 0, 255, MAX_R, MAX_L));
+    if (thr <= brk)
+        iot_servo_write_angle(MOTOR_SPEED_MODE, 0, map(thr, 0, 255, MAX_FOR, 90));
+    else
+        iot_servo_write_angle(MOTOR_SPEED_MODE, 0, map(brk, 0, 255, MAX_REV, 90));
+}
+
+void command_rx(void *param)
+{
+
+    ESP_LOGI(TAG, "Command_rx started");
+
+#if USE_NETCONN
+
+    command_conn = netconn_new(NETCONN_UDP);
+    if (command_conn == NULL)
+    {
+        ESP_LOGE(TAG, "netconn_new err");
+        return;
+    }
+
+    err_t err = netconn_bind(command_conn, IPADDR_ANY, 3197);
+    if (err != ERR_OK)
+    {
+        ESP_LOGE(TAG, "netconn_bind err %d", err);
+        netconn_delete(command_conn);
+        return;
+    }
+
+    servo_config_t servo_cfg = {
+        .max_angle = 180,
+        .min_width_us = 500,
+        .max_width_us = 2500,
+        .freq = 50,
+        .timer_number = MOTOR_PWM_TIMER,
+        .channels = {
+            .servo_pin = {
+                MOT_PIN,
+                SER_PIN,
+            },
+            .ch = {
+                MOTOR_PWM_CHANNEL_MOT,
+                MOTOR_PWM_CHANNEL_SER,
+            },
+        },
+        .channel_number = 2,
+    };
+    iot_servo_init(MOTOR_SPEED_MODE, &servo_cfg);
+
+    ESP_LOGI(TAG, "Command_rx init done");
+
+    while (1)
+    {
+        struct netbuf *rxbuf;
+        if (netconn_recv(command_conn, &rxbuf) == ERR_OK)
+        {
+            uint8_t *data;
+            u16_t len;
+            netbuf_data(rxbuf, (void **)&data, &len);
+
+            if (len)
+            {
+                char packet[255];
+                for (size_t i = 0; i < len; i++)
+                {
+                    packet[i] = (char)data[i];
+                }
+                packet[len] = '\0';
+                ESP_LOGD(TAG, "packet received: %s", packet);
+
+                // If the message is correct [xxx;xxx;xxx]! do actuation
+                if (packet[0] == '[' && packet[4] == ';' && packet[8] == ';' && packet[12] == ']')
+                {
+                    do_actuation(packet);
+                }
+            }
+            netbuf_delete(rxbuf);
+        }
+    }
+#endif
+}
+
 void start_camera(void)
 {
 #if USE_NETCONN
@@ -232,7 +353,7 @@ void start_camera(void)
                 if (data[0] == 0x55)
                 {
                     peer_addr = *netbuf_fromaddr(rxbuf);
-                    ESP_LOGI(TAG, "peer %lx", peer_addr.u_addr.ip4.addr);
+                    ESP_LOGI(TAG, "peer %x", peer_addr.u_addr.ip4.addr);
 
                     ESP_LOGI(TAG, "Trigged!");
                     netbuf_delete(rxbuf);
@@ -271,4 +392,5 @@ void start_camera(void)
     }
 #endif
     xTaskCreatePinnedToCore(&camera_tx, "camera_tx", 4096, NULL, 10, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(&command_rx, "command_rx", 4096, NULL, 10, NULL, tskNO_AFFINITY);
 }

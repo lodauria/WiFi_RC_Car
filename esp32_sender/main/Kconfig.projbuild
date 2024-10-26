@@ -1,16 +1,4 @@
-menu "Example Configuration"
-
-    config M5STACK_UNITCAM
-        bool "M5Stack UnitCam"
-        default n
-
-    config M5STACK_UNITCAM_S3
-        bool "M5Stack UnitCam S3"
-        default y
-
-    config XIAO_ESP32S3_SENSE
-        bool "Xiao ESP32S3 Sense"
-        default n
+menu "WiFi Configuration"
 
     config ESP_WIFI_SSID
         string "WiFi SSID"
@@ -24,9 +12,16 @@ menu "Example Configuration"
         help
             WiFi password (WPA or WPA2) for the example to use.
 
-    config ESP_MAXIMUM_RETRY
-        int "Maximum retry"
-        default 5
+    config ESP_IP_ADDR
+        string "ESP static IP address"
+        default "192.168.1.152"
         help
-            Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
+            The ESP need to have a static IP address
+
+    config ESP_IP_GW
+        string "Gateway IP address"
+        default "192.168.1.1"
+        help
+            Tipically the router IP address
+
 endmenu

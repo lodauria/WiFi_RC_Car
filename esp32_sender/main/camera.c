@@ -22,12 +22,12 @@
 #define MOTOR_SPEED_MODE LEDC_HIGH_SPEED_MODE
 
 // Calibrazione ruote sterzanti
-#define MAX_L 60  // Ruote tutte a sinistra
+#define MAX_L 50  // Ruote tutte a sinistra
 #define MAX_R 120 // Ruote tutte a destra
 
 // Calibrazione motore (ESC)
-#define MAX_FOR 115 // Massima potenza avanti
-#define MAX_REV 65  // Massima potenza retro
+#define MAX_FOR 140 // Massima potenza avanti
+#define MAX_REV 30  // Massima potenza retro
 
 // support IDF 5.x
 #ifndef portTICK_RATE_MS

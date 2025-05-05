@@ -65,8 +65,8 @@ def init() -> pygame.joystick:
 def parse_commands_car(c: list):
     # [R2, L2, ARROW_HOR]!
     # Always use 3 digits per number
-    parsed_mess = "[" + "{:03d}".format(c[4]) + \
-                  ";" + "{:03d}".format(c[5]) + \
+    parsed_mess = "[" + "{:03d}".format(c[5]) + \
+                  ";" + "{:03d}".format(c[4]) + \
                   ";" + "{:03d}".format(c[0]) + "]|"
     return parsed_mess
 
@@ -128,7 +128,7 @@ def main(args):
     thread = threading.Thread(target=udp_recv, args=(listener, args.target))
     thread.start()
 
-    win_name = 'Streaming Video'
+    win_name = "FPV CAMERA - Press 'q' to quit"
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
     if args.fullscreen:
         cv2.setWindowProperty(win_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
